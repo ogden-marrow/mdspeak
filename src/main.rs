@@ -11,7 +11,7 @@ const VOICE_BASE: &str = "https://huggingface.co/rhasspy/piper-voices/resolve/ma
 const VOICE_NAME: &str = "en_US-lessac-medium";
 
 #[derive(Parser)]
-#[command(name = "mdspeak", about = "Render Markdown nicely in the terminal and read it aloud with a local TTS model (Piper)")]
+#[command(name = "mdspeak", version, about = "Render Markdown nicely in the terminal and read it aloud with a local TTS model (Piper)")]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,

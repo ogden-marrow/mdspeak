@@ -12,6 +12,7 @@ const DEFAULT_MODEL: &str = "base.en";
 #[derive(Parser)]
 #[command(
     name = "mdhear",
+    version,
     about = "Dictate Markdown: record your voice (or read an audio file) and transcribe it locally with whisper.cpp",
     after_help = "Voice commands (disable with --plain):\n  \"new paragraph\" / \"new line\"\n  \"heading one|two|three <sentence>\"\n  \"bullet <sentence>\"  \"numbered item <sentence>\"\n  \"bold ... end bold\"  \"italic ... end italic\"  \"code ... end code\""
 )]

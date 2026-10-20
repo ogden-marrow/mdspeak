@@ -1,0 +1,187 @@
+.TH MDHEAR 1 "October 2026" "mdhear 0.1.0" "User Commands"
+.SH NAME
+mdhear \- dictate Markdown: record speech and transcribe it locally with whisper.cpp
+.SH SYNOPSIS
+.B mdhear
+[\fIOPTIONS\fR]
+.br
+.B mdhear
+.B \-f
+.I AUDIOFILE
+[\fIOPTIONS\fR]
+.br
+.B mdhear
+.B setup
+[\fIMODEL\fR]
+.SH DESCRIPTION
+.B mdhear
+records audio from the default microphone (or reads an existing audio file), transcribes it on the local machine using whisper.cpp, and prints the result as Markdown. No audio or text leaves the computer, except during
+.BR "mdhear setup" .
+.PP
+In recording mode, speaking starts immediately; press
+.B Enter
+to stop. Status messages go to standard error, so standard output contains only the Markdown and is safe to redirect or pipe.
+.PP
+Unless
+.B \-\-plain
+is given, certain spoken phrases are interpreted as Markdown formatting commands; see
+.BR "VOICE COMMANDS" .
+.PP
+.B mdhear
+is the counterpart of
+.BR mdspeak (1),
+which reads Markdown aloud.
+.SH OPTIONS
+.TP
+.BR \-f ", " \-\-file " \fIFILE\fR"
+Transcribe an existing audio file instead of recording. Any format that
+.BR ffmpeg (1)
+can decode is accepted (wav, mp3, m4a, ogg, flac, video files, ...).
+.TP
+.BR \-o ", " \-\-output " \fIFILE\fR"
+Write the Markdown to
+.I FILE
+instead of standard output. An existing file is overwritten.
+.TP
+.BR \-m ", " \-\-model " \fIMODEL\fR"
+Whisper model: a name such as
+.BR tiny.en ,
+.BR base.en ,
+.BR small.en ,
+.BR medium.en ,
+or a path to a
+.B ggml\-*.bin
+file. Named models must have been fetched with
+.BR "mdhear setup" .
+Default:
+.BR base.en .
+.TP
+.B \-\-plain
+Do not interpret voice commands; output the raw transcript followed by a newline.
+.TP
+.BR \-h ", " \-\-help
+Print a short usage summary.
+.TP
+.BR \-V ", " \-\-version
+Print the version.
+.SS Subcommands
+.TP
+.B setup \fR[\fIMODEL\fR]
+Clone and build whisper.cpp into
+.I ~/.local/share/mdhear
+and download
+.I MODEL
+(default
+.BR base.en ).
+Requires
+.BR git (1),
+.BR cmake (1),
+a C++ compiler and
+.BR curl (1).
+The first build takes a few minutes and the base model is about 150 MB. Re-running with a different model name adds that model; existing files are reused.
+.SH VOICE COMMANDS
+Commands are matched case-insensitively, ignoring punctuation that the speech model inserts around them.
+.TP
+.B new paragraph
+Insert a blank line.
+.TP
+.B new line
+Insert a line break.
+.TP
+.BI heading " one" "\fR|\fPtwo\fR|\fPthree"
+Start a heading (#, ##, ###). The heading runs to the end of the spoken sentence.
+.TP
+.B bullet
+.TQ
+.B bullet point
+Start a list item (\-). It runs to the end of the sentence.
+.TP
+.B numbered item
+Start a numbered list item (1.). Markdown renderers renumber automatically.
+.TP
+.B bold " ... " end bold
+Wrap the enclosed words in **double asterisks**.
+.TP
+.B italic " ... " end italic
+Wrap the enclosed words in *single asterisks*.
+.TP
+.B code " ... " end code
+Wrap the enclosed words in `backticks`.
+.PP
+Everything else is passed through as ordinary prose. Because these are ordinary English words, use
+.B \-\-plain
+when dictating text that legitimately contains phrases such as "new line" or "bullet point".
+.SH EXAMPLES
+Dictate into a file:
+.PP
+.RS
+.B mdhear \-o notes.md
+.RE
+.PP
+Saying "heading one, Shopping list. Bullet milk. Bullet eggs. New paragraph. Remember the bags." yields:
+.PP
+.RS
+.nf
+# Shopping list
+\- milk
+\- eggs
+
+Remember the bags.
+.fi
+.RE
+.PP
+Transcribe a recording with higher accuracy:
+.PP
+.RS
+.nf
+mdhear setup small.en
+mdhear \-m small.en \-f meeting.m4a \-o meeting.md
+.fi
+.RE
+.PP
+Raw transcript to the clipboard (X11):
+.PP
+.RS
+.B mdhear \-\-plain | xclip \-selection clipboard
+.RE
+.SH FILES
+.TP
+.I ~/.local/share/mdhear/whisper.cpp/
+Source and build tree; the executable used is
+.IR build/bin/whisper\-cli .
+.TP
+.I ~/.local/share/mdhear/models/ggml\-NAME.bin
+Downloaded Whisper models.
+.SH ENVIRONMENT
+.TP
+.B XDG_DATA_HOME
+If set, the data directory is
+.I $XDG_DATA_HOME/mdhear
+instead of
+.IR ~/.local/share/mdhear .
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Any error: model or whisper.cpp not installed, no recorder available, no speech detected, unreadable audio file.
+.SH DEPENDENCIES
+.BR pw\-record (1)
+(PipeWire) or
+.BR arecord (1)
+(ALSA) for recording;
+.BR ffmpeg (1)
+for
+.BR \-\-file .
+.SH BUGS AND LIMITATIONS
+Linux only; English models and language only. Transcription accuracy depends on the model: small models can mishear words, so proofread the output. Recording has no live level meter, and the whole recording is transcribed after Enter is pressed rather than as you speak.
+.PP
+Report issues at https://github.com/ogden-marrow/mdspeak/issues.
+.SH SEE ALSO
+.BR mdspeak (1),
+.BR ffmpeg (1),
+.BR pw\-record (1),
+.BR arecord (1)
+.SH AUTHORS
+Written with Claude Code.

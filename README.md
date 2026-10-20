@@ -13,7 +13,11 @@ Linux only for now. Needs `curl`, `tar`, `aplay` (for `mdspeak`), `pw-record` or
 cargo install --path .
 mdspeak setup   # downloads Piper + an English voice
 mdhear setup    # builds whisper.cpp + downloads the base.en model
+
+mkdir -p ~/.local/share/man/man1 && cp man/*.1 ~/.local/share/man/man1/   # man pages
 ```
+
+Then `man mdspeak` and `man mdhear` have the full option reference.
 
 ## mdspeak
 

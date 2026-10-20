@@ -1,0 +1,162 @@
+.TH MDSPEAK 1 "October 2026" "mdspeak 0.1.0" "User Commands"
+.SH NAME
+mdspeak \- render Markdown in the terminal and read it aloud with a local TTS model
+.SH SYNOPSIS
+.B mdspeak
+[\fIOPTIONS\fR] [\fITEXT\fR...]
+.br
+.B mdspeak
+.B \-f
+.I FILE
+[\fIOPTIONS\fR]
+.br
+.B mdspeak
+.B setup
+.SH DESCRIPTION
+.B mdspeak
+takes Markdown, prints it formatted in the terminal (headings, lists, emphasis, code blocks), and speaks it aloud using
+.BR piper (1),
+a fast neural text-to-speech engine that runs entirely on the local machine.
+No network access is used except by
+.BR "mdspeak setup" .
+.PP
+Before speaking, the Markdown is converted to plain prose: markup characters are dropped, link text is kept, image alt text is introduced with "Image:", list items and table rows become separate sentences, and fenced or indented code blocks are replaced by the phrase "Code block omitted."
+.PP
+Input is taken from, in order of precedence: the
+.B \-f
+file, the
+.I TEXT
+arguments, or standard input.
+.PP
+.B mdspeak
+is the counterpart of
+.BR mdhear (1),
+which turns speech into Markdown.
+.SH OPTIONS
+.TP
+.BR \-f ", " \-\-file " \fIFILE\fR"
+Read Markdown from
+.IR FILE .
+.TP
+.BR \-v ", " \-\-voice " \fIVOICE\fR"
+Voice to use: either the name of a model in the voices directory (for example
+.BR en_US\-lessac\-medium )
+or a path to a
+.B .onnx
+file. A matching
+.B .onnx.json
+file must sit beside the model. Default:
+.BR en_US\-lessac\-medium .
+.TP
+.BR \-o ", " \-\-output " \fIFILE\fR"
+Write the speech to a WAV file instead of playing it.
+.TP
+.BR \-s ", " \-\-speed " \fIN\fR"
+Speaking speed multiplier. 1.0 is normal, 1.5 is faster, 0.8 is slower. Default: 1.0.
+.TP
+.BR \-q ", " \-\-quiet
+Speak only; do not print the rendered Markdown.
+.TP
+.B \-\-no\-speak
+Print the rendered Markdown only; do not speak.
+.TP
+.BR \-h ", " \-\-help
+Print a short usage summary.
+.TP
+.BR \-V ", " \-\-version
+Print the version.
+.SS Subcommands
+.TP
+.B setup
+Download Piper and the default English voice into
+.IR ~/.local/share/mdspeak .
+This needs
+.BR curl (1)
+and
+.BR tar (1)
+and about 90 MB of disk space. Already-downloaded files are skipped, so it is safe to re-run.
+.SH TEXT ARGUMENTS
+Words given on the command line are joined with spaces. The two characters
+.B \e\|n
+are converted to a real newline, so
+.PP
+.RS
+.nf
+mdspeak "# Title\enSome **bold** text"
+.fi
+.RE
+.PP
+works as expected.
+.SH EXAMPLES
+Read a README aloud:
+.PP
+.RS
+.B mdspeak \-f README.md
+.RE
+.PP
+Read faster without printing anything:
+.PP
+.RS
+.B mdspeak \-q \-s 1.4 \-f notes.md
+.RE
+.PP
+Pipe text in:
+.PP
+.RS
+.B cat article.md | mdspeak
+.RE
+.PP
+Save an audiobook-style recording:
+.PP
+.RS
+.B mdspeak \-q \-f chapter1.md \-o chapter1.wav
+.RE
+.PP
+Preview how a document renders without speaking:
+.PP
+.RS
+.B mdspeak \-\-no\-speak \-f draft.md
+.RE
+.PP
+Round trip with
+.BR mdhear (1):
+.PP
+.RS
+.B mdspeak \-q \-o a.wav "Hello there" && mdhear \-f a.wav
+.RE
+.SH FILES
+.TP
+.I ~/.local/share/mdspeak/piper/piper
+The Piper executable installed by
+.BR "mdspeak setup" .
+.TP
+.I ~/.local/share/mdspeak/voices/
+Voice models (\fI*.onnx\fR and \fI*.onnx.json\fR). Additional voices from the Piper voice collection can be dropped in here and selected with
+.BR \-\-voice .
+.SH ENVIRONMENT
+.TP
+.B XDG_DATA_HOME
+If set, the data directory is
+.I $XDG_DATA_HOME/mdspeak
+instead of
+.IR ~/.local/share/mdspeak .
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Any error: missing input, Piper or voice not installed, playback failure, unreadable file.
+.SH DEPENDENCIES
+.BR aplay (1)
+(alsa-utils) for playback, which also works through PipeWire and PulseAudio ALSA compatibility layers.
+.SH BUGS AND LIMITATIONS
+Linux only. English voice by default. Code blocks are skipped rather than read. There is no way to pause or seek; press Ctrl\-C to stop playback.
+.PP
+Report issues at https://github.com/ogden-marrow/mdspeak/issues.
+.SH SEE ALSO
+.BR mdhear (1),
+.BR piper (1),
+.BR aplay (1)
+.SH AUTHORS
+Written with Claude Code.
