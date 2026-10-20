@@ -1,9 +1,10 @@
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 use pulldown_cmark::{Event, Options, Parser as MdParser, Tag, TagEnd};
 
 const PIPER_URL: &str = "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz";
@@ -16,32 +17,37 @@ struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
 
-    /// Markdown file to read. Omit to use the text arguments or stdin.
-    #[arg(short, long)]
-    file: Option<PathBuf>,
-
     /// Voice model name (in the voices dir) or path to a .onnx file
-    #[arg(short, long)]
+    #[arg(short, long, env = "MDSPEAK_VOICE")]
     voice: Option<String>,
 
-    /// Save audio to a WAV file instead of playing it
-    #[arg(short, long)]
+    /// Write audio to a WAV file instead of playing it
+    #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
 
     /// Print the rendered Markdown only, don't speak
-    #[arg(long)]
+    #[arg(short = 'n', long)]
     no_speak: bool,
 
-    /// Speak only, don't print the rendered Markdown
+    /// Speak only, don't print the Markdown
     #[arg(short, long)]
     quiet: bool,
 
     /// Speed multiplier (1.0 = normal, 1.5 = faster)
-    #[arg(short, long, default_value_t = 1.0)]
+    #[arg(short, long, default_value_t = 1.0, env = "MDSPEAK_SPEED")]
     speed: f32,
 
-    /// Text to speak (Markdown allowed)
-    text: Vec<String>,
+    /// Speak this text (Markdown allowed) instead of reading files or stdin
+    #[arg(short, long, value_name = "TEXT")]
+    text: Option<String>,
+
+    /// Print a shell completion script and exit
+    #[arg(long, value_name = "SHELL")]
+    completions: Option<Shell>,
+
+    /// Markdown files to read; "-" or no files means standard input
+    #[arg(value_name = "FILE")]
+    files: Vec<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -130,7 +136,7 @@ fn speak(text: &str, voice: Option<&str>, output: Option<&PathBuf>, speed: f32) 
     cmd.stderr(Stdio::null()).stdin(Stdio::piped());
     match output {
         Some(path) => {
-            cmd.arg("--output_file").arg(path);
+            cmd.arg("--output_file").arg(path).stdout(Stdio::null());
         }
         None => {
             cmd.arg("--output_raw").stdout(Stdio::piped());
@@ -155,9 +161,6 @@ fn speak(text: &str, voice: Option<&str>, output: Option<&PathBuf>, speed: f32) 
     if let Some(p) = player.as_mut() {
         p.wait()?;
     }
-    if let Some(path) = output {
-        println!("Saved {}", path.display());
-    }
     Ok(())
 }
 
@@ -167,27 +170,68 @@ fn sample_rate(model: &PathBuf) -> Option<u32> {
     json[i..].split(|c: char| !c.is_ascii_digit()).find(|s| !s.is_empty())?.parse().ok()
 }
 
-fn main() -> Result<()> {
+fn main() {
+    // Die quietly on a closed pipe (`mdspeak -n x | head`) like other Unix tools.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+    if let Err(e) = real_main() {
+        eprintln!("mdspeak: {e:#}");
+        std::process::exit(1);
+    }
+}
+
+fn read_input(cli: &Cli) -> Result<String> {
+    if let Some(t) = &cli.text {
+        return Ok(t.replace("\\n", "\n"));
+    }
+    let mut parts = Vec::new();
+    if cli.files.is_empty() {
+        if std::io::stdin().is_terminal() {
+            Cli::command().print_help()?;
+            std::process::exit(2);
+        }
+        let mut s = String::new();
+        std::io::stdin().read_to_string(&mut s)?;
+        parts.push(s);
+    }
+    for f in &cli.files {
+        if f.as_os_str() == "-" {
+            let mut s = String::new();
+            std::io::stdin().read_to_string(&mut s)?;
+            parts.push(s);
+        } else {
+            parts.push(std::fs::read_to_string(f).with_context(|| f.display().to_string())?);
+        }
+    }
+    Ok(parts.join("\n\n"))
+}
+
+fn real_main() -> Result<()> {
     let cli = Cli::parse();
+    if let Some(shell) = cli.completions {
+        clap_complete::generate(shell, &mut Cli::command(), "mdspeak", &mut std::io::stdout());
+        return Ok(());
+    }
     if let Some(Cmd::Setup) = cli.cmd {
         return setup();
     }
 
-    let md = if let Some(f) = &cli.file {
-        std::fs::read_to_string(f).with_context(|| format!("reading {}", f.display()))?
-    } else if !cli.text.is_empty() {
-        cli.text.join(" ").replace("\\n", "\n")
-    } else {
-        let mut s = String::new();
-        std::io::stdin().read_to_string(&mut s)?;
-        s
-    };
+    let md = read_input(&cli)?;
     if md.trim().is_empty() {
         bail!("nothing to read");
     }
 
     if !cli.quiet {
-        termimad::print_text(&md);
+        let pretty = std::io::stdout().is_terminal()
+            && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
+            && std::env::var("TERM").map_or(true, |t| t != "dumb");
+        if pretty {
+            termimad::print_text(&md);
+        } else if cli.no_speak {
+            // Not a terminal: behave like cat so the output can be piped.
+            print!("{md}");
+        }
     }
     if !cli.no_speak {
         speak(&markdown_to_speech(&md), cli.voice.as_deref(), cli.output.as_ref(), cli.speed)?;

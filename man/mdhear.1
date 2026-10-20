@@ -6,21 +6,29 @@ mdhear \- dictate Markdown: record speech and transcribe it locally with whisper
 [\fIOPTIONS\fR]
 .br
 .B mdhear
-.B \-f
-.I AUDIOFILE
 [\fIOPTIONS\fR]
+.I FILE
+[\fIFILE\fR...]
 .br
 .B mdhear
 .B setup
 [\fIMODEL\fR]
 .SH DESCRIPTION
 .B mdhear
-records audio from the default microphone (or reads an existing audio file), transcribes it on the local machine using whisper.cpp, and prints the result as Markdown. No audio or text leaves the computer, except during
+records audio from the default microphone (or reads the audio files named on the command line), transcribes it on the local machine using whisper.cpp, and prints the result as Markdown. No audio or text leaves the computer, except during
 .BR "mdhear setup" .
 .PP
-In recording mode, speaking starts immediately; press
+With no
+.I FILE
+arguments it records: speaking starts immediately; press
 .B Enter
-to stop. Status messages go to standard error, so standard output contains only the Markdown and is safe to redirect or pipe.
+to stop. A file named
+.B \-
+means audio on standard input. Several files are transcribed in order and separated by a blank line.
+.PP
+Status messages go to standard error and are shown only when it is a terminal (or hidden with
+.BR \-q ),
+so standard output contains only the Markdown and is safe to redirect or pipe.
 .PP
 Unless
 .B \-\-plain
@@ -33,15 +41,14 @@ is the counterpart of
 which reads Markdown aloud.
 .SH OPTIONS
 .TP
-.BR \-f ", " \-\-file " \fIFILE\fR"
-Transcribe an existing audio file instead of recording. Any format that
-.BR ffmpeg (1)
-can decode is accepted (wav, mp3, m4a, ogg, flac, video files, ...).
-.TP
 .BR \-o ", " \-\-output " \fIFILE\fR"
 Write the Markdown to
 .I FILE
-instead of standard output. An existing file is overwritten.
+instead of standard output. An existing file is overwritten. A
+.I FILE
+of
+.B \-
+means standard output.
 .TP
 .BR \-m ", " \-\-model " \fIMODEL\fR"
 Whisper model: a name such as
@@ -55,6 +62,19 @@ file. Named models must have been fetched with
 .BR "mdhear setup" .
 Default:
 .BR base.en .
+.TP
+.BR \-q ", " \-\-quiet
+Suppress status messages on standard error.
+.TP
+.BI \-\-completions " SHELL"
+Print a completion script for
+.BR bash ,
+.BR zsh ,
+.BR fish ,
+.B elvish
+or
+.B powershell
+and exit.
 .TP
 .B \-\-plain
 Do not interpret voice commands; output the raw transcript followed by a newline.
@@ -111,6 +131,10 @@ Wrap the enclosed words in `backticks`.
 Everything else is passed through as ordinary prose. Because these are ordinary English words, use
 .B \-\-plain
 when dictating text that legitimately contains phrases such as "new line" or "bullet point".
+.PP
+Input files may be anything
+.BR ffmpeg (1)
+can decode: wav, mp3, m4a, ogg, flac, even video.
 .SH EXAMPLES
 Dictate into a file:
 .PP
@@ -135,7 +159,7 @@ Transcribe a recording with higher accuracy:
 .RS
 .nf
 mdhear setup small.en
-mdhear \-m small.en \-f meeting.m4a \-o meeting.md
+mdhear \-m small.en \-o meeting.md meeting.m4a
 .fi
 .RE
 .PP
@@ -154,6 +178,10 @@ Source and build tree; the executable used is
 Downloaded Whisper models.
 .SH ENVIRONMENT
 .TP
+.B MDHEAR_MODEL
+Default for
+.BR \-\-model .
+.TP
 .B XDG_DATA_HOME
 If set, the data directory is
 .I $XDG_DATA_HOME/mdhear
@@ -165,15 +193,17 @@ instead of
 Success.
 .TP
 .B 1
-Any error: model or whisper.cpp not installed, no recorder available, no speech detected, unreadable audio file.
+Any error: model or whisper.cpp not installed, no recorder available, no speech detected, unreadable audio file. Messages are written to standard error as "mdhear: message".
+.TP
+.B 2
+Invalid usage (for example an unknown option).
 .SH DEPENDENCIES
 .BR pw\-record (1)
 (PipeWire) or
 .BR arecord (1)
 (ALSA) for recording;
 .BR ffmpeg (1)
-for
-.BR \-\-file .
+when transcribing files.
 .SH BUGS AND LIMITATIONS
 Linux only; English models and language only. Transcription accuracy depends on the model: small models can mishear words, so proofread the output. Recording has no live level meter, and the whole recording is transcribed after Enter is pressed rather than as you speak.
 .PP

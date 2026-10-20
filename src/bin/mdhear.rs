@@ -1,9 +1,10 @@
-use std::io::BufRead;
+use std::io::{BufRead, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 
 const WHISPER_REPO: &str = "https://github.com/ggml-org/whisper.cpp";
 const MODEL_BASE: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
@@ -20,21 +21,29 @@ struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
 
-    /// Transcribe this audio file instead of recording
-    #[arg(short, long)]
-    file: Option<PathBuf>,
-
-    /// Write the Markdown to this file instead of stdout
-    #[arg(short, long)]
+    /// Write the Markdown to this file instead of stdout ("-" = stdout)
+    #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
 
     /// Whisper model name (e.g. base.en, small.en) or path to a .bin file
-    #[arg(short, long, default_value = DEFAULT_MODEL)]
+    #[arg(short, long, default_value = DEFAULT_MODEL, env = "MDHEAR_MODEL")]
     model: String,
 
     /// Don't interpret spoken Markdown commands; output the raw transcript
     #[arg(long)]
     plain: bool,
+
+    /// Suppress status messages on stderr
+    #[arg(short, long)]
+    quiet: bool,
+
+    /// Print a shell completion script and exit
+    #[arg(long, value_name = "SHELL")]
+    completions: Option<Shell>,
+
+    /// Audio files to transcribe ("-" = audio on stdin); with none, record from the microphone
+    #[arg(value_name = "FILE")]
+    files: Vec<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -95,7 +104,7 @@ fn model_path(model: &str) -> Result<PathBuf> {
 }
 
 /// Record the mic to a 16 kHz mono WAV until the user presses Enter.
-fn record(wav: &Path) -> Result<()> {
+fn record(wav: &Path, quiet: bool) -> Result<()> {
     let mut cmd = if which("pw-record") {
         let mut c = Command::new("pw-record");
         c.args(["--rate", "16000", "--channels", "1", "--format", "s16"]).arg(wav);
@@ -108,7 +117,9 @@ fn record(wav: &Path) -> Result<()> {
         bail!("need pw-record or arecord to record audio");
     };
     let mut child = cmd.stderr(Stdio::null()).spawn().context("failed to start recorder")?;
-    eprintln!("🎙  Recording... press Enter to stop.");
+    if !quiet {
+        eprintln!("mdhear: recording... press Enter to stop");
+    }
     let mut line = String::new();
     std::io::stdin().lock().read_line(&mut line)?;
     // SIGINT lets the recorder finalize the WAV header.
@@ -123,7 +134,8 @@ fn which(bin: &str) -> bool {
 
 /// Convert any audio file to 16 kHz mono WAV for whisper.
 fn convert(input: &Path, wav: &Path) -> Result<()> {
-    run(Command::new("ffmpeg").args(["-y", "-loglevel", "error", "-i"]).arg(input).args(["-ar", "16000", "-ac", "1"]).arg(wav))
+    let src = if input.as_os_str() == "-" { PathBuf::from("pipe:0") } else { input.to_path_buf() };
+    run(Command::new("ffmpeg").args(["-y", "-loglevel", "error", "-i"]).arg(src).args(["-ar", "16000", "-ac", "1"]).arg(wav))
 }
 
 fn transcribe(wav: &Path, model: &Path) -> Result<String> {
@@ -272,39 +284,65 @@ fn to_markdown(text: &str) -> String {
     s
 }
 
-fn main() -> Result<()> {
+fn main() {
+    // Die quietly on a closed pipe (`mdhear | head`) like other Unix tools.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+    if let Err(e) = real_main() {
+        eprintln!("mdhear: {e:#}");
+        std::process::exit(1);
+    }
+}
+
+fn real_main() -> Result<()> {
     let cli = Cli::parse();
+    if let Some(shell) = cli.completions {
+        clap_complete::generate(shell, &mut Cli::command(), "mdhear", &mut std::io::stdout());
+        return Ok(());
+    }
     if let Some(Cmd::Setup { model }) = &cli.cmd {
         return setup(model);
     }
+    let quiet = cli.quiet || !std::io::stderr().is_terminal();
     let model = model_path(&cli.model)?;
     let tmp = std::env::temp_dir().join(format!("mdhear-{}", std::process::id()));
     std::fs::create_dir_all(&tmp)?;
-    let wav = tmp.join("audio.wav");
 
-    let result = (|| -> Result<String> {
-        match &cli.file {
-            Some(f) => convert(f, &wav)?,
-            None => record(&wav)?,
+    let result = (|| -> Result<Vec<String>> {
+        let mut texts = Vec::new();
+        if cli.files.is_empty() {
+            let wav = tmp.join("audio.wav");
+            record(&wav, quiet)?;
+            texts.push(transcribe_logged(&wav, &model, quiet)?);
         }
-        eprintln!("✍  Transcribing...");
-        transcribe(&wav, &model)
+        for (i, f) in cli.files.iter().enumerate() {
+            let wav = tmp.join(format!("audio{i}.wav"));
+            convert(f, &wav).with_context(|| f.display().to_string())?;
+            texts.push(transcribe_logged(&wav, &model, quiet)?);
+        }
+        Ok(texts)
     })();
     std::fs::remove_dir_all(&tmp).ok();
-    let text = result?;
-    if text.trim().is_empty() {
+    let texts = result?;
+    if texts.iter().all(|t| t.trim().is_empty()) {
         bail!("no speech detected");
     }
 
-    let md = if cli.plain { format!("{text}\n") } else { to_markdown(&text) };
+    let render = |t: &str| if cli.plain { format!("{t}\n") } else { to_markdown(t) };
+    let md = texts.iter().filter(|t| !t.trim().is_empty()).map(|t| render(t)).collect::<Vec<_>>().join("\n");
     match &cli.output {
-        Some(p) => {
-            std::fs::write(p, &md)?;
-            eprintln!("Saved {}", p.display());
-        }
-        None => print!("{md}"),
+        Some(p) if p.as_os_str() != "-" => std::fs::write(p, &md).with_context(|| p.display().to_string())?,
+        _ => print!("{md}"),
     }
     Ok(())
+}
+
+fn transcribe_logged(wav: &Path, model: &Path, quiet: bool) -> Result<String> {
+    if !quiet {
+        eprintln!("mdhear: transcribing...");
+    }
+    transcribe(wav, model)
 }
 
 #[cfg(test)]

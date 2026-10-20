@@ -3,11 +3,11 @@
 mdspeak \- render Markdown in the terminal and read it aloud with a local TTS model
 .SH SYNOPSIS
 .B mdspeak
-[\fIOPTIONS\fR] [\fITEXT\fR...]
+[\fIOPTIONS\fR] [\fIFILE\fR...]
 .br
 .B mdspeak
-.B \-f
-.I FILE
+.B \-t
+.I TEXT
 [\fIOPTIONS\fR]
 .br
 .B mdspeak
@@ -23,10 +23,23 @@ No network access is used except by
 Before speaking, the Markdown is converted to plain prose: markup characters are dropped, link text is kept, image alt text is introduced with "Image:", list items and table rows become separate sentences, and fenced or indented code blocks are replaced by the phrase "Code block omitted."
 .PP
 Input is taken from, in order of precedence: the
-.B \-f
-file, the
-.I TEXT
-arguments, or standard input.
+.B \-t
+text, the
+.I FILE
+arguments (read in order, a file named
+.B \-
+means standard input), or standard input when no files are given. If no input is given and standard input is a terminal, the usage message is printed and the exit status is 2.
+.PP
+Like other filters,
+.B mdspeak
+prints nothing on success when its output is not a terminal. The formatted Markdown is shown only when standard output is a terminal and
+.B NO_COLOR
+is unset and
+.B TERM
+is not "dumb"; with
+.B \-\-no\-speak
+and output that is not a terminal, the Markdown is copied through unchanged, like
+.BR cat (1).
 .PP
 .B mdspeak
 is the counterpart of
@@ -34,9 +47,12 @@ is the counterpart of
 which turns speech into Markdown.
 .SH OPTIONS
 .TP
-.BR \-f ", " \-\-file " \fIFILE\fR"
-Read Markdown from
-.IR FILE .
+.BR \-t ", " \-\-text " \fITEXT\fR"
+Speak
+.I TEXT
+(Markdown allowed) instead of reading files or standard input. The two characters
+.B \e\|n
+are converted to a real newline.
 .TP
 .BR \-v ", " \-\-voice " \fIVOICE\fR"
 Voice to use: either the name of a model in the voices directory (for example
@@ -57,8 +73,18 @@ Speaking speed multiplier. 1.0 is normal, 1.5 is faster, 0.8 is slower. Default:
 .BR \-q ", " \-\-quiet
 Speak only; do not print the rendered Markdown.
 .TP
-.B \-\-no\-speak
+.BR \-n ", " \-\-no\-speak
 Print the rendered Markdown only; do not speak.
+.TP
+.BI \-\-completions " SHELL"
+Print a completion script for
+.BR bash ,
+.BR zsh ,
+.BR fish ,
+.B elvish
+or
+.B powershell
+and exit.
 .TP
 .BR \-h ", " \-\-help
 Print a short usage summary.
@@ -75,54 +101,42 @@ This needs
 and
 .BR tar (1)
 and about 90 MB of disk space. Already-downloaded files are skipped, so it is safe to re-run.
-.SH TEXT ARGUMENTS
-Words given on the command line are joined with spaces. The two characters
-.B \e\|n
-are converted to a real newline, so
-.PP
-.RS
-.nf
-mdspeak "# Title\enSome **bold** text"
-.fi
-.RE
-.PP
-works as expected.
 .SH EXAMPLES
 Read a README aloud:
 .PP
 .RS
-.B mdspeak \-f README.md
+.B mdspeak README.md
 .RE
 .PP
 Read faster without printing anything:
 .PP
 .RS
-.B mdspeak \-q \-s 1.4 \-f notes.md
+.B mdspeak \-q \-s 1.4 notes.md
 .RE
 .PP
 Pipe text in:
 .PP
 .RS
-.B cat article.md | mdspeak
+.B cat article.md | mdspeak \-
 .RE
 .PP
 Save an audiobook-style recording:
 .PP
 .RS
-.B mdspeak \-q \-f chapter1.md \-o chapter1.wav
+.B mdspeak \-q chapter1.md \-o chapter1.wav
 .RE
 .PP
 Preview how a document renders without speaking:
 .PP
 .RS
-.B mdspeak \-\-no\-speak \-f draft.md
+.B mdspeak \-n draft.md
 .RE
 .PP
 Round trip with
 .BR mdhear (1):
 .PP
 .RS
-.B mdspeak \-q \-o a.wav "Hello there" && mdhear \-f a.wav
+.B mdspeak \-q \-t "Hello there" \-o a.wav && mdhear a.wav
 .RE
 .SH FILES
 .TP
@@ -135,6 +149,17 @@ Voice models (\fI*.onnx\fR and \fI*.onnx.json\fR). Additional voices from the Pi
 .BR \-\-voice .
 .SH ENVIRONMENT
 .TP
+.B MDSPEAK_VOICE
+Default for
+.BR \-\-voice .
+.TP
+.B MDSPEAK_SPEED
+Default for
+.BR \-\-speed .
+.TP
+.B NO_COLOR
+If set and non\-empty, the formatted rendering is not shown.
+.TP
 .B XDG_DATA_HOME
 If set, the data directory is
 .I $XDG_DATA_HOME/mdspeak
@@ -146,12 +171,21 @@ instead of
 Success.
 .TP
 .B 1
-Any error: missing input, Piper or voice not installed, playback failure, unreadable file.
+Any error: missing input, Piper or voice not installed, playback failure, unreadable file. Messages are written to standard error as "mdspeak: message".
+.TP
+.B 2
+Invalid usage (unknown option, or no input given on a terminal).
 .SH DEPENDENCIES
 .BR aplay (1)
 (alsa-utils) for playback, which also works through PipeWire and PulseAudio ALSA compatibility layers.
 .SH BUGS AND LIMITATIONS
 Linux only. English voice by default. Code blocks are skipped rather than read. There is no way to pause or seek; press Ctrl\-C to stop playback.
+.PP
+The Piper subcommand name
+.B setup
+cannot be used as a file name; write
+.B ./setup
+instead.
 .PP
 Report issues at https://github.com/ogden-marrow/mdspeak/issues.
 .SH SEE ALSO
